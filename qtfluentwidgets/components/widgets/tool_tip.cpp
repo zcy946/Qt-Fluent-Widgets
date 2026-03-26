@@ -2,11 +2,13 @@
 
 #include <QApplication>
 #include <QEvent>
+#include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QScreen>
 #include <QScrollBar>
 #include <QTableView>
+#include <QWindow>
 
 #include "common/style_sheet.h"
 
@@ -38,11 +40,37 @@ void ToolTip::setDuration(int duration) { duration_ = duration; }
 
 void ToolTip::adjustPos(QWidget* widget, ToolTipPosition position) {
     ToolTipPositionManager* manager = ToolTipPositionManager::make(position);
-    move(manager->position(this, widget));
+    QPoint globalPos = manager->position(this, widget);
+    
+    QString platformName = QGuiApplication::platformName();
+    bool isWayland = (platformName == QStringLiteral("wayland") || 
+                      platformName == QStringLiteral("wayland-egl"));
+    
+    if (isWayland && parentWidget()) {
+        // On Wayland, we must use child widget positioning
+        // Map global position to parent-relative position
+        QPoint parentPos = parentWidget()->mapFromGlobal(globalPos);
+        move(parentPos);
+    } else {
+        // On X11/other platforms, use global positioning
+        if (QWindow* window = windowHandle()) {
+            window->setPosition(globalPos);
+        } else {
+            move(globalPos);
+        }
+    }
+    
+    delete manager;
 }
 
 void ToolTip::showEvent(QShowEvent* e) {
-    if (opacityAni_) {
+    // Only start opacity animation if platform supports it
+    // Wayland does not support setting window opacity
+    QString platformName = QGuiApplication::platformName();
+    bool isWayland = (platformName == QStringLiteral("wayland") || 
+                      platformName == QStringLiteral("wayland-egl"));
+    
+    if (opacityAni_ && !isWayland) {
         opacityAni_->setStartValue(0.0);
         opacityAni_->setEndValue(1.0);
         opacityAni_->start();
@@ -53,6 +81,11 @@ void ToolTip::showEvent(QShowEvent* e) {
         if (duration_ > 0) {
             timer_->start(duration_ + (opacityAni_ ? opacityAni_->duration() : 0));
         }
+    }
+
+    // On Wayland, ensure child widget is on top
+    if (isWayland) {
+        raise();
     }
 
     QFrame::showEvent(e);
@@ -83,7 +116,7 @@ void ToolTip::initUi() {
     containerLayout_->addWidget(label_);
     containerLayout_->setContentsMargins(8, 6, 8, 6);
 
-    // add opacity effect
+    // add opacity effect (may not work on Wayland)
     opacityAni_ = new QPropertyAnimation(this, QByteArrayLiteral("windowOpacity"), this);
     opacityAni_->setDuration(150);
 
@@ -97,11 +130,26 @@ void ToolTip::initUi() {
     timer_->setSingleShot(true);
     connect(timer_, &QTimer::timeout, this, &ToolTip::hide);
 
-    // set window attributes
+    // Check platform for window configuration
+    QString platformName = QGuiApplication::platformName();
+    bool isWayland = (platformName == QStringLiteral("wayland") || 
+                      platformName == QStringLiteral("wayland-egl"));
+
+    // set window attributes - different for Wayland vs X11
     setAttribute(Qt::WA_TransparentForMouseEvents);
     setAttribute(Qt::WA_TranslucentBackground);
     setAttribute(Qt::WA_ShowWithoutActivating);
-    setWindowFlags(Qt::Tool | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint);
+    
+    if (!isWayland) {
+        // On X11, use independent tool window
+        setWindowFlags(Qt::Tool | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint);
+        createWinId();
+    } else {
+        // On Wayland, must be a child widget to position correctly
+        // Window flags are not set - it will be a child of parent widget
+        setAttribute(Qt::WA_StyledBackground);
+        raise();  // Ensure it's on top of other child widgets
+    }
 }
 
 void ToolTip::setQss() {

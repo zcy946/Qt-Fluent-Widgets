@@ -19,7 +19,7 @@ public:
 
 protected:
     void showEvent(QShowEvent* e) override;
-    bool event(QEvent* e) override;
+    void paintEvent(QPaintEvent* e) override;
 
 private:
     void applyMica();

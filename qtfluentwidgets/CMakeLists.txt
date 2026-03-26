@@ -231,6 +231,23 @@ if(WIN32)
     )
 endif()
 
+if(UNIX AND NOT APPLE)
+    # Linux-specific sources
+    target_sources(qtfluentwidgets PRIVATE
+        components/window/linux_frameless_window.cpp
+        components/window/linux_frameless_window.h
+    )
+    # X11 is no longer required - using Qt6 public API for system resize
+    # find_package(X11 REQUIRED)
+    # find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS GuiPrivate)
+    # target_link_libraries(qtfluentwidgets PUBLIC X11::X11 Qt${QT_VERSION_MAJOR}::GuiPrivate)
+else()
+    # Stub implementation for non-Linux platforms
+    target_sources(qtfluentwidgets PRIVATE
+        components/window/linux_frameless_window_stub.cpp
+    )
+endif()
+
 target_link_libraries(qtfluentwidgets PUBLIC Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Svg)
 
 if(APPLE)
